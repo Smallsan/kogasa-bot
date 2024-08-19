@@ -1,7 +1,8 @@
 
 import path from "path";
 import * as url from "url";
-import { Channel, Client, Collection, Options, User } from "discord.js";
+import { Client, Collection, Options, User } from "discord.js";
+import Pocketbase from "pocketbase";
 
 import {
 	ChatBuffer,
@@ -19,9 +20,6 @@ import { messageDelete } from "./src/discord/message_delete.js";
 import { messageCreate } from "./src/discord/message_create.js";
 import { ready } from "./src/discord/ready.js";
 
-import { InviteManager } from "@helpers/session/invite.js";
-import { SessionManager, Session, Invite } from "@helpers/session/session.js";
-
 ///////////////////////////////////////////////////////////////////////////////////
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 const client = new Client({
@@ -32,42 +30,7 @@ const client = new Client({
 		UserManager: 100,
 	}),
 });
-const session = new SessionManager<Session, Invite>(new InviteManager<Invite>());
-session.on("sessionTimeout", async (info) => {
-	if (!info) {
-		return;
-	}
-	let channel: Channel | null = null;
-	let players: User[] = [];
-	try {
-		channel = await client.channels.fetch(info.channel_id);
-		players = await Promise.all(info.players.map(async (v) => await client.users.fetch(v.id)));
-	} catch (error) {
-		console.log(error);
-	}
-	if (channel?.isTextBased()) {
-		// make stockfish analyze the game.
-		channel.send(`\`${players[info.turn_index].displayName}\`'s potato blew up on them!`);
-		setTimeout(() => {
-			channel?.delete();
-		}, 10 * 1000);
-	}
-});
-session.on_invite("inviteTimeout", async (info) => {
-	if (!info || !info.recipient || !info.sender) {
-		return;
-	}
-	let channel: Channel | null = null;
-	try {
-		channel = await client.channels.fetch(info.recipient.channel_id);
-	} catch (error) {
-		console.log(error);
-	}
-	if (channel?.isTextBased()) {
-		channel.send(`${info.sender.name}'s invite for ${info.recipient.name} has expired.`);
-	}
-});
-
+const pb = new Pocketbase("http://127.0.0.1:8090");
 ///////////////////////////////////////////////////////////////////////////////////
 const commands = new Collection<string, CommandModule>().concat(
 	await helpers.importDirectories(__dirname, "/src/commands/"),
@@ -83,7 +46,7 @@ const other_dependencies: DiscordExternalDependencies = {
 	aliases,
 	chat_buffer,
 	websites,
-	session
+	pb,
 };
 //////////////////////////////////////////////////////////////////////////////////
 if (!settings.test) await enableAutoDelete();

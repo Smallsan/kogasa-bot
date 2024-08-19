@@ -1,6 +1,5 @@
 
-import {map_replacer} from "@root/src/commands/chess.js";
-import {InviteEmitters, InviteManager} from "./invite.js";
+import {InviteData, InviteEmitters, InviteManager} from "./invite.js";
 import events from "events";
 
 type SessionEmitters = "sessionTimeout";
@@ -19,7 +18,7 @@ export interface Session {
 	move_start_time: Date,
 	move_end_time: Date,
 }
-export interface Invite {
+export interface InviteNode {
 	id: string,
 	name: string,
 	channel_id: string,
@@ -69,7 +68,7 @@ export class SessionManager<T extends { players: { id: string }[] }, K extends {
 		const {players} = session_info;
 		// check for NaN values.
 		// to create a unique hash.
-		const hash = rehash(...players.map(c => Number(c))).toString();
+		const hash = rehash(players.join("-")).toString();
 		for (const player of session_info.players) {
 			this.users_in_session.set(player.id, hash);
 		}
@@ -112,38 +111,32 @@ export class SessionManager<T extends { players: { id: string }[] }, K extends {
 				this.event_emitter.emit("sessionTimeout", session);
 		}
 	}
-	
 	// INVITES
 	sendInviteTo(from_user: K, to_user: K, ms_expiry = 1 * 60 * 1000) {
 		return this.invites.sendInviteTo(from_user, to_user, ms_expiry);
 	}
-	acceptInvite(recipient_id: string, invite_index: number) {
-		return this.invites.acceptInviteOfSender(recipient_id, invite_index);
+	getUsers(id: string): InviteData<K> | undefined {
+		return this.invites.getUserData(id);
 	}
-	declineInvite(recipient_id: string, invite_index: number) {
-		return this.invites.declineInviteOfSender(recipient_id, invite_index);
-	}
-	revokeInvite(sender_id: string, invite_index: number) {
-		return this.invites.revokeInviteFromReciever(sender_id, invite_index);
-	}
-	viewInvitesOfReciever(recipient_id: string) {
-		return this.invites.viewInvitesOfReciever(recipient_id);
-	}
-	printAllVariables() {
-		const invite_vars = this.invites.printAllVariables();
-		return invite_vars + "\n"
-			+ "sessions: " + JSON.stringify(this.sessions, map_replacer, 4) + "\n"
-			+ "users_in_sessions" + JSON.stringify(this.users_in_session, map_replacer, 4) + "\n";
+	removeInvite(sender_id: string, recipient_id: string) {
+		return this.invites.removeInviteFromMemory(sender_id, recipient_id);
 	}
 }
 
+
 /**
-	* Dangerous due to XOR and number overflows.
-	*/
-function rehash(...ids: number[]): number {
-	let hash = 0;
-	for (const id of ids) {
-		hash ^= id;
-	}
-	return hash;
+ * Generates 32 bit FNV-1a hash from the given string.
+ * As explained here: http://isthe.com/chongo/tech/comp/fnv/
+ *
+ * @param s {string} String to generate hash from.
+ * @param [h] {number} FNV-1a hash generation init value.
+ * @returns {number} The result integer hash.
+ */
+export function rehash(s: string): number {
+	let base = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    base ^= s.charCodeAt(i);
+    base += (base << 1) + (base << 4) + (base << 7) + (base << 8) + (base << 24);
+  }
+  return base >>> 0;
 }

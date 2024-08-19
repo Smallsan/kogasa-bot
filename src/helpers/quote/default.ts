@@ -6,12 +6,12 @@ export async function quoteDefault(
 	author: string,
 	avatar_url: string,
 ) {
-	const check = await fetch(`${settings.canvas_endpoint}/quote_fn`, {
+	const check = await fetch(`${settings.canvas_endpoint}/quote`, {
 		method: "POST",
 		body: JSON.stringify({
 			text: text,
 			author: author,
-			png_url: avatar_url,
+			avatar_url: avatar_url,
 		}),
 		headers: {
 			"Content-Type": "application/json",

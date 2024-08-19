@@ -9,7 +9,10 @@ export const aliases = ["back", "backtrack", "b"];
 export const cooldown = 20;
 export const channel: ChannelScope[] = ["Guild", "Thread"];
 export const description =
-	"Backtrack a channel, a command better than Small's implementation. `??buffer (delete | edit | normal | none)`";
+	"Backtrack a channel. `??buffer (delete | edit | normal | none)`";
+export const extended_description = "`??buffer delete` sends the deleted messages."
+	+ "`??buffer edit` sends the edited messages."
+	+ "`??buffer` sends everything the bot has logged in.";
 export async function execute(
 	_: Client,
 	msg: Message,
@@ -47,7 +50,10 @@ export async function execute(
 	} else {
 		embed.setDescription("No messages found.");
 	}
-	msg.reply({ embeds: [embed] });
+	const r = await msg.reply({ embeds: [embed] });
+	setTimeout(async () => {
+		r.delete().catch(() => {});
+	}, 5 * 1000);
 }
 
 function limitMessageLength(message: ChatBufferMessage, maxLength: number) {

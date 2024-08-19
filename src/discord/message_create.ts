@@ -3,9 +3,9 @@ import { pushMessageToBuffer } from "@helpers/buffer/buffer.js";
 import { separateCommands } from "@helpers/parser/parser.js";
 import {
 	CommandModule,
+	Tiers,
 	Cooldown,
 	ExternalDependencies,
-	Tier,
 	DiscordExternalDependencies,
 } from "@helpers/types.js";
 import settings from "@root/settings.json" assert { type: "json" };
@@ -17,13 +17,7 @@ import { ChannelScope } from "@helpers/types.js";
 
 const user_cooldowns = new Collection<string, Cooldown>();
 
-const tiers = new Map<string, Tier>([
-	["C", { chance: 137, name: "Common", emote: ":cd:" }], // implement low_chance and high_chance to compare together
-	["UC", { chance: 220, name: "Uncommon", emote: ":comet:" }],
-	["R", { chance: 275, name: "Rare", emote: ":sparkles:" }],
-	["SR", { chance: 298, name: "Super Rare", emote: ":sparkles::camping:" }],
-	["Q", { chance: 300, name: "Flower", emote: ":white_flower:" }],
-]);
+const tiers: [Tiers, number][] = [["C", 0.50], ["UC", 0.30], ["R", 0.15], ["SR", 0.04999], ["Q", 0.0001]];
 const channel_types: [typeof GuildChannel | typeof ThreadChannel | typeof DMChannel, ChannelScope][] = [[DMChannel, "DMs"], [GuildChannel, "Guild"], [ThreadChannel, "Thread"]];
 
 export async function messageCreate(
@@ -61,7 +55,7 @@ export async function messageCreate(
 			command_module,
 			msg.author.id
 		);
-		if (!expired_timestamp) {
+		if (expired_timestamp) {
 			msg.reply(
 				`Please wait, you are on a cooldown for \`${command_module.name}\`.` +
 					` You can use it again <t:${expired_timestamp}:R>.`
@@ -84,7 +78,7 @@ export async function messageCreate(
 				tiers: tiers,
 				chat_buffer: deps.chat_buffer,
 				settings: settings,
-				session: deps.session
+				pb: deps.pb,
 			};
 			command_module.execute(client, msg, args, ext);
 		}

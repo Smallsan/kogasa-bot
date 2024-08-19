@@ -2,9 +2,7 @@ import { Collection } from "discord.js";
 import { Cooldown } from "@helpers/types.js";
 import { CommandModule } from "@helpers/types.js";
 
-// Collection<"(user_id)(command_name)", Cooldown>
-
-export async function getExpiredTimestamp(
+export function getExpiredTimestamp(
 	cooldowns: Collection<string, Cooldown>,
 	command_module: CommandModule,
 	author_id: string

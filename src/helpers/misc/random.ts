@@ -3,7 +3,7 @@ import readline from "readline";
 import seedrandom from "seedrandom";
 import random from "random";
 import crypto from "crypto";
-import { Tier, Website } from "../types";
+import { Tiers, Website } from "../types";
 
 const seed = crypto.randomBytes(400).toString();
 const rng = random.clone(seedrandom(seed, { entropy: true }));
@@ -14,6 +14,31 @@ const rng = random.clone(seedrandom(seed, { entropy: true }));
  */
 export function getRandomInt(min: number, max: number) {
 	return rng.uniformInt(min, max)();
+}
+
+export function generateWeightedRandomTable(chances: [string, number][]) {
+	const table: string[] = [];
+	for (const [name, loop_amount] of chances) {
+		for (let i = 0; i < loop_amount; i++) {
+			table.push(name);
+		}
+	}
+	return table;
+}
+export function weightedPicker(chances: [string, number][]) {
+	const length = 100_000;
+	let tracked = 0; // offsetter.
+									 // e.g: if 0.9 => 900 then it should add to the weighted_chance in the next loop
+									 // so before it would be: 0.9 => 900, then 0.05 => 50 (a number like 943 wouldn't be caught)
+		 							 // now it would be: 0.9 => 900, then 0.05 => 900 + 50 (a number like 930 WOULD be caught)
+
+	const picked_number = getRandomInt(0, length);
+	for (const [name, chance] of chances) {
+		tracked += chance * length;
+		if (tracked >= picked_number) {
+			return name;
+		}
+	}
 }
 
 export function pickRandom<T>(iterable: T[]): T {
@@ -37,26 +62,13 @@ export function grabAllRandomWebsites(path: string): Promise<Website[]> {
 
 export function gachaSpecificWebsite(
 	websites: Website[],
-	chances: Map<string, Tier>
+	chances: [Tiers, number][]
 ) {
-	const rannum = getRandomInt(1, 300);
-
-	for (const rarity_name of chances.keys()) {
-		const rarity_value = chances.get(rarity_name);
-
-		if (!rarity_value) {
-			throw Error(
-				"Something went wrong with grabbing rarity from the 'Tiers' Hashmap."
-			);
-		}
-		if (rannum <= rarity_value.chance) {
-			const rarity_websites = websites.filter((v) => v.rarity === rarity_name);
-			return {
-				website: rarity_websites[getRandomInt(0, rarity_websites.length - 1)],
-				rarity_name: rarity_value.name,
-				rarity_emote: rarity_value.emote,
-				diceroll: rannum,
-			};
-		}
+	const picked_rarity = weightedPicker(chances);
+	if (!picked_rarity) {
+		return;
 	}
+
+	const filtered_websites = websites.filter((v) => v.rarity === picked_rarity);
+	return pickRandom(filtered_websites);
 }

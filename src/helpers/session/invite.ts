@@ -1,168 +1,65 @@
 
 import events from "events";
+import {rehash} from "./session.js";
 
 export type InviteEmitters = "inviteTimeout";
-export type InviteMessages = 
-	"SentInvite" | "RevokedInvite" | "DeclinedInvite" | "AcceptedInvite" | "NoInvites"
-		| "AlreadySentInvite" | "ViewInvites" | "SenderRecieverCycle" | "NoReciever" | "InvalidIndex";
+export type InviteMessages = "AddInvite" | "RemovedInvite" | "NoInvites" | "HasInvite";
 export type InviteResult<K extends InviteMessages, P = NonNullable<unknown>> = { msg: K, payload: P };
+export interface InviteData<T> {
+	recipient: T;
+	sender: T;
+}
 
 export class InviteManager<T extends {id: string}> {
-	// how would you reduce the amount of maps needed?
-	private recipients = new Map<string, string[]>();
-	private senders = new Map<string, string>();
-	private users = new Map<string, T>();
+	private invite_map = new Map<string, InviteData<T>>();
 	private event_emitter = new events.EventEmitter();
 
 	constructor() {}
-
 	on(event: InviteEmitters, listener: (info: {sender: T, recipient: T}) => void) {
 		this.event_emitter.on(event, listener);
 	}
 
-	sendInviteTo(from_user: T, to_user: T, ms_expiry = 1 * 60 * 1000): InviteResult<"AlreadySentInvite" | "SentInvite" | "SenderRecieverCycle"> {
-		// needs multiple people for testing
-		const is_cyclical = this.recipients.get(from_user.id)?.find(sender_id => sender_id === to_user.id);
-		const already_sent = this.senders.has(from_user.id);
-		if (already_sent) {
-			return {msg: "AlreadySentInvite", payload: {}};
+	sendInviteTo(from_user: T, to_user: T, expiry_in_ms = 1 * 60 * 1000): InviteResult<"AddInvite" | "HasInvite"> {
+		// it implicitly allows multiple senders and recievers too. damn.
+		const invite_hash = rehash(`${from_user.id}${to_user.id}`).toString();
+		const already_invited = this.invite_map.has(invite_hash);
+		if (already_invited) {
+			return {msg: "HasInvite", payload: {}};
 		}
-		if (is_cyclical) {
-			return {msg: "SenderRecieverCycle", payload: {}};
-		}
-
-		const senders_of_recipient = this.recipients.get(to_user.id);
-		if (senders_of_recipient) {
-			senders_of_recipient.push(from_user.id);
-		} else {
-			this.recipients.set(to_user.id, [from_user.id]);
-		}
-		this.senders.set(from_user.id, to_user.id);
-		this.users.set(from_user.id, from_user);
-		this.users.set(to_user.id, to_user);
-
+		this.invite_map.set(invite_hash, {
+			recipient: from_user,
+			sender: to_user,
+		});
 		setTimeout(() => {
-			const senders_of_recipient = this.recipients.get(to_user.id);
-			const recipient_id = this.senders.get(from_user.id);
-
-			const index_of_sender = senders_of_recipient?.findIndex(v => v === recipient_id);
-			if (senders_of_recipient && index_of_sender && recipient_id) {
-				const deleted_sender = senders_of_recipient.splice(index_of_sender, 1);
-				if (senders_of_recipient.length <= 0) {
-					this.recipients.delete(recipient_id);
-				}
-				this.senders.delete(deleted_sender[0]);
-
-				const recipient = structuredClone(this.users.get(recipient_id))!;
-				const sender = structuredClone(this.users.get(deleted_sender[0]))!;
-				this.event_emitter.emit("inviteTimeout", {sender, recipient});
-
-				this.users.delete(recipient_id);
-				this.users.delete(deleted_sender[0]);
+			if (this.invite_map.delete(invite_hash)) {
+				this.event_emitter.emit("inviteTimeout", {from_user, to_user});
 			}
-		}, ms_expiry);
-
-		return {msg: "SentInvite", payload: {}};
+		}, expiry_in_ms);
+		return {msg: "AddInvite", payload: {}};
 	}
 	/**
-		* Returns a list of senders who sent the reciever an invite.
+		* Can be used to accept, reject, or revoke an invite.
+		* It just removes the invite from the internal invite map.
 		*/
-	viewInvitesOfReciever(recipient_id: string): InviteResult<"ViewInvites" | "NoReciever", string[]> {
-		const senders_of_recipient = this.recipients.get(recipient_id);
-		if (senders_of_recipient) {
-			return {msg: "ViewInvites", payload: senders_of_recipient};
-		} else {
-			return {msg: "NoReciever", payload: []};
-		}
-	}
-	/**
-		* Accepts the invite of the sender.
-		* It should be invoked by the person accepting the invite.
-		*/
-	acceptInviteOfSender(recipient_id: string, invite_index: number): InviteResult<"AcceptedInvite" | "NoInvites" | "InvalidIndex", {sender: T, reciever: T} | undefined> {
-		const senders_of_recipient = this.recipients.get(recipient_id)!;
-		if (senders_of_recipient && senders_of_recipient.length > 0) {
-			const sender = structuredClone(this.users.get(senders_of_recipient.at(invite_index)!));
-			const reciever = structuredClone(this.users.get(recipient_id));
-			if (!sender || !reciever) {
-				return {msg: "InvalidIndex", payload: undefined};
-			}
-
-			for (const sender_of_recipient of senders_of_recipient) {
-				// is the sender of the original recipient.. recieving any invite?
-				const recipients_of_sender_of_recipient = this.recipients.get(sender_of_recipient);
-				if (recipients_of_sender_of_recipient?.length 
-						&& recipients_of_sender_of_recipient.length <= 0) {
-					// if they don't have any, delete everything in the "invite box"
-					this.senders.delete(sender_of_recipient);
-					this.recipients.delete(sender_of_recipient);
-					this.users.delete(sender_of_recipient);
-				} else {
-					// if they have one, remove their send invite, but not the recievers
-					this.senders.delete(sender_of_recipient);
-				}
-			}
-
-			return {msg: "AcceptedInvite", payload: {sender, reciever}};
-		} else {
+	removeInviteFromMemory(sender_id: string, recipient_id: string): InviteResult<"RemovedInvite" | "NoInvites", {sender: T, reciever: T} | undefined> {
+		// sender and recipient? ??chess accept @ping then?
+		const invite_hash = rehash(`${sender_id}${recipient_id}`).toString();
+		const invite = this.invite_map.get(invite_hash);
+		if (!invite) {
 			return {msg: "NoInvites", payload: undefined};
 		}
-	}
-
-	/**
-		* It should be invoked by the reciever.
-		*
-		* Deletes all invites the recipient recieved.
-		*/
-	declineInviteOfSender(recipient_id: string, invite_index: number): InviteResult<"DeclinedInvite" | "NoInvites" | "InvalidIndex", {sender: T, reciever: T} | undefined> {
-		const senders_of_recipient = this.recipients.get(recipient_id);
-		if (senders_of_recipient && senders_of_recipient.length !== 0) {
-			const sender = structuredClone(this.users.get(senders_of_recipient.at(invite_index)!));
-			const reciever = structuredClone(this.users.get(recipient_id)!);
-			if (!sender || !reciever) {
-				return {msg: "InvalidIndex", payload: undefined};
-			}
-			senders_of_recipient.splice(invite_index, 1);
-
-			if (senders_of_recipient.length <= 0) {
-				this.recipients.delete(recipient_id);
-			}
-			this.senders.delete(sender.id);
-
-			return {msg: "DeclinedInvite", payload: {reciever, sender}};
-		}
-		return {msg: "NoInvites", payload: undefined};
-	}
-
-	revokeInviteFromReciever(sender_id: string, invite_index: number): InviteResult<"RevokedInvite" | "NoInvites" | "InvalidIndex", {reciever: T, sender: T} | undefined> {
-		const recipient_id = this.senders.get(sender_id);
-		if (!recipient_id) {
-			return {msg: "NoInvites", payload: undefined};
-		}
-		const senders_of_recipient = this.recipients.get(recipient_id);
-		if (senders_of_recipient && senders_of_recipient.length !== 0) {
-			const sender = structuredClone(this.users.get(senders_of_recipient.at(invite_index)!));
-			const reciever = structuredClone(this.users.get(recipient_id)!);
-			if (!sender || !reciever) {
-				return {msg: "InvalidIndex", payload: undefined};
-			}
-			senders_of_recipient.splice(invite_index, 1);
-
-			if (senders_of_recipient.length <= 0) {
-				this.recipients.delete(recipient_id);
-			}
-			this.senders.delete(sender.id);
-
-			return {msg: "RevokedInvite", payload: {reciever, sender}};
-		}
-		return {msg: "NoInvites", payload: undefined};
+		const sender = structuredClone(invite.sender);
+		const reciever = structuredClone(invite.recipient);
+		this.invite_map.delete(invite_hash);
+		return {msg: "RemovedInvite", payload: {sender, reciever}};
 	}
 
 	printAllVariables(): string {
-		return "recipients: " + JSON.stringify(this.recipients, replacer, 4) + this.recipients.size + "\n" +
-		"senders: " + JSON.stringify(this.senders, replacer, 4) + this.senders.size + "\n";
+		return "invites: " + JSON.stringify(this.invite_map, replacer, 4) + this.invite_map.size + "\n";
 	}
-	declineAllInvites() {}
+	getUserData(id: string): InviteData<T> | undefined {
+		return this.invite_map.get(id);
+	}
 }
 
 function replacer(key: string, value: unknown) {

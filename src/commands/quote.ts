@@ -61,7 +61,7 @@ async function parseQuotes(client: Client, str: string) {
 
 	const uid_regex = /<@(\d+)>/g;
 	const uids = [...string.matchAll(uid_regex)];
-	for (const [entire_mention, uid] of uids ?? []) {
+	for (const [entire_mention, uid] of uids) {
 		try {
 			const user =
 				client.users.cache.get(uid) ?? (await client.users.fetch(uid));
